@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,7 +25,9 @@ func main() {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(collector)
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
 	go collector.Start(ctx)
 
 	handler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
@@ -36,15 +40,24 @@ func main() {
 		Handler: nil,
 	}
 
+	errCh := make(chan error)
 	go func() {
-		<-ctx.Done()
-		logger.Info("Shutting down HTTP server")
-		shutdownCtx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-		server.Shutdown(shutdownCtx)
+		logger.Info("HTTP server listening", zap.String("addr", cfg.ListenAddress))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
 	}()
 
-	logger.Info("HTTP server listening", zap.String("addr", cfg.ListenAddress))
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	select {
+	case err := <-errCh:
 		logger.Fatal("Failed to start server", zap.Error(err))
+
+	case <-ctx.Done():
+		logger.Info("Shutting down HTTP server")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		server.Shutdown(shutdownCtx)
 	}
 }
