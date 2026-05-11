@@ -9,6 +9,15 @@ build:
         --push \
         .
 
+# Build and push the multi-arch Podman image
+build-podman:
+    podman build \
+        --platform linux/amd64,linux/arm64 \
+        --format docker \
+        -t {{ image }}:{{ tag }} \
+        --push \
+        .
+
 # Lint the code
 lint:
     staticcheck ./...
