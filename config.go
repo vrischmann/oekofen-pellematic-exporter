@@ -19,7 +19,7 @@ func parseConfig() *Config {
 	cfg := &Config{}
 
 	flag.StringVar(&cfg.PelletmaticURL, "url", "http://localhost/pellematic.json", "Pellematic boiler JSON endpoint URL")
-	flag.StringVar(&cfg.ListenAddress, "addr", ":8080", "HTTP server listen address")
+	flag.StringVar(&cfg.ListenAddress, "addr", ":48400", "HTTP server listen address")
 	flag.StringVar(&cfg.MetricsPath, "path", "/metrics", "Metrics endpoint path")
 	flag.DurationVar(&cfg.RefreshInterval, "interval", 30*time.Second, "Data refresh interval")
 	logMode := flag.String("log", "development", "Log mode: development or production")
