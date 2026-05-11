@@ -8,3 +8,7 @@ build:
         -t {{ image }}:{{ tag }} \
         --push \
         .
+
+# Lint the code
+lint:
+    staticcheck ./...

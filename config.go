@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,16 +19,38 @@ type Config struct {
 func parseConfig() *Config {
 	cfg := &Config{}
 
-	flag.StringVar(&cfg.PelletmaticURL, "url", "http://localhost/pellematic.json", "Pellematic boiler JSON endpoint URL")
-	flag.StringVar(&cfg.ListenAddress, "addr", ":48400", "HTTP server listen address")
-	flag.StringVar(&cfg.MetricsPath, "path", "/metrics", "Metrics endpoint path")
-	flag.DurationVar(&cfg.RefreshInterval, "interval", 30*time.Second, "Data refresh interval")
-	logMode := flag.String("log", "development", "Log mode: development or production")
+	// Defaults: env vars override hardcoded defaults, CLI flags override env vars
+	defaultURL := envOrDefault("PELLEMATIC_URL", "http://localhost/pellematic.json")
+	defaultAddr := envOrDefault("PELLEMATIC_ADDR", ":48400")
+	defaultPath := envOrDefault("PELLEMATIC_PATH", "/metrics")
+	defaultInterval := envOrDefault("PELLEMATIC_INTERVAL", "30s")
+	defaultLog := envOrDefault("PELLEMATIC_LOG", "development")
+
+	flag.StringVar(&cfg.PelletmaticURL, "url", defaultURL, "Pellematic boiler JSON endpoint URL")
+	flag.StringVar(&cfg.ListenAddress, "addr", defaultAddr, "HTTP server listen address")
+	flag.StringVar(&cfg.MetricsPath, "path", defaultPath, "Metrics endpoint path")
+	flag.DurationVar(&cfg.RefreshInterval, "interval", parseDuration(defaultInterval), "Data refresh interval")
+	logMode := flag.String("log", defaultLog, "Log mode: development or production")
 	flag.Parse()
 
 	cfg.ProductionMode = *logMode == "production"
 
 	return cfg
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func parseDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 30 * time.Second
+	}
+	return d
 }
 
 func setupLogger(productionMode bool) *zap.Logger {

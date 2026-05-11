@@ -28,7 +28,6 @@ type Collector struct {
 }
 
 var (
-	registry     = prometheus.NewRegistry()
 	scrapeErrors = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "pellematic_scrape_errors_total",
 		Help: "Total number of scrape errors from Pellematic boiler",
@@ -75,7 +74,7 @@ func (c *Collector) fetchData() (*PellematicData, error) {
 	bodyStr = strings.ReplaceAll(bodyStr, `L_statetext:`, `L_statetext":`)
 
 	var data PellematicData
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := json.Unmarshal([]byte(bodyStr), &data); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
