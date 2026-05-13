@@ -38,18 +38,21 @@ go run oekofen-pellematic-exporter
 With custom configuration:
 
 ```bash
-go run oekofen-pellematic-exporter -url http://192.168.1.100/pellematic.json -addr :8080 -interval 30s
+go run oekofen-pellematic-exporter -url http://192.168.1.100/pellematic_full.json -addr :48400
 ```
 
 ### Manual Testing
 
-Use the provided `pellematic.json` file for testing the collector:
+Use the provided JSON files for testing the collector:
 
 ```bash
-# Serve the example file
+# Serve the example files
 python3 -m http.server 8000
 
-# Run the exporter against the local server
+# Run against the full format (recommended)
+go run . -url http://localhost:8000/pellematic_full.json
+
+# Run against the non-full format (backward compat)
 go run . -url http://localhost:8000/pellematic.json
 ```
 
@@ -78,14 +81,15 @@ Run `go mod tidy` after:
 
 ```
 .
-├── main.go           # Application entry point, HTTP server setup, graceful shutdown
-├── collector.go      # Metrics collection, processing, and scraping logic
-├── config.go         # CLI flag parsing and logger setup
-├── metrics.go        # Metric naming and label building utilities
-├── pellematic.json   # Example JSON data from boiler
-├── go.mod            # Go module definition
-├── go.sum            # Dependency checksums
-└── .gitignore        # Git ignore patterns (excludes binaries)
+├── main.go              # Application entry point, HTTP server setup, graceful shutdown
+├── collector.go         # Metrics collection, processing, and scraping logic
+├── config.go            # CLI flag parsing and logger setup
+├── metrics.go           # Metric naming and label building utilities
+├── pellematic.json      # Example JSON data from boiler (non-full format)
+├── pellematic_full.json # Example JSON data from boiler (full format, recommended)
+├── go.mod               # Go module definition
+├── go.sum               # Dependency checksums
+└── .gitignore           # Git ignore patterns (excludes binaries)
 ```
 
 ## Key Components
@@ -112,10 +116,8 @@ The core component, responsible for:
 ### Config (`config.go`)
 
 Configuration via command-line flags:
-- `-url`: Pellematic JSON endpoint URL (default: `http://localhost/pellematic.json`)
-- `-addr`: HTTP server listen address (default: `:8080`)
-- `-path`: Metrics endpoint path (default: `/metrics`)
-- `-interval`: Data refresh interval (default: `30s`)
+- `-url`: Pellematic full JSON endpoint URL (default: `http://localhost/pellematic_full.json`)
+- `-addr`: HTTP server listen address (default: `:48400`)
 - `-log`: Logging mode, `development` or `production` (default: `development`)
 
 ### Metric Naming (`metrics.go`)
@@ -126,14 +128,23 @@ The `cleanLabelName` function lowercases field names and strips the `L_` prefix.
 
 ## Data Processing Rules
 
-### Scaling Rules
+### Full JSON Format (primary)
 
-`processValue()` checks field names **in order**, returning on the first match. This means earlier, broader patterns shadow later, more specific ones:
+When using the full JSON endpoint (`pellematic_full.json`), each field is a metadata object:
+```json
+"L_temp_act": {"val": 523, "unit": "°C", "factor": 0.1, "min": -32768, "max": 32767, "text": "PE T Chaudière"}
+```
+
+Scaling is **data-driven**: the `factor` field is applied as `val * factor`. Metric help text uses the `text` field. String-valued fields and `*_info` section metadata keys are skipped.
+
+### Legacy Scaling (non-full format fallback)
+
+`processValue()` checks field names **in order**, returning on the first match. Used only when values are plain scalars (non-full JSON format):
 
 | Check Order | Field Pattern | Operation | Notes |
 |-------------|---------------|-----------|-------|
 | 1 | Contains `temp` | Divide by 10.0 | Matches any field with "temp" in the name |
-| 2 | Contains `runtime` | Multiply by 3600.0 | **Catches `avg_runtime`, `runtimeburner`, `resttimeburner` too** |
+| 2 | Contains `runtime` | Multiply by 3600.0 | Catches `avg_runtime`, `runtimeburner`, `resttimeburner` too |
 | 3 | Contains `avg_runtime` | Multiply by 60.0 | **Unreachable**: shadowed by check 2 |
 | 4 | Contains `runtimeburner` or `resttimeburner` | No scaling | **Unreachable**: shadowed by check 2 |
 | 5 | Contains `starts` | No scaling | |
@@ -142,7 +153,7 @@ The `cleanLabelName` function lowercases field names and strips the `L_` prefix.
 | 8 | Contains `storage_fill` or `pellets` | No scaling | |
 | 9 | (default) | No scaling (raw value) | All other fields |
 
-**Known issue**: Checks 3 and 4 are dead code because `avg_runtime` contains `runtime`, and `runtimeburner`/`resttimeburner` also contain `runtime`. They all match check 2 first. If you fix this, reorder the checks so more specific patterns come before broader ones (e.g., check `avg_runtime` before `runtime`).
+**Note**: These legacy heuristics have known shadowing bugs (checks 3, 4). The full format avoids these entirely by using the `factor` field.
 
 ### Sentinel Values
 
@@ -154,6 +165,8 @@ These integer values indicate unavailable data and are skipped:
 ### Section Handling
 
 - **forecast section**: Completely skipped (not processed)
+- **`*_info` keys** (e.g., `system_info`, `pe_info`): Skipped (section metadata, full format only)
+- **String-valued fields**: Skipped (e.g., `L_source`, `L_location`, `name`)
 - **All other sections**: Processed as nested maps if the value is `map[string]interface{}`
 
 ### State Text Processing
@@ -216,9 +229,9 @@ Follow the conventional commit format:
 
 ### Adding a New Metric
 
-1. Identify the JSON field in `pellematic.json`
-2. The collector will automatically process most numeric fields
-3. If special scaling is needed, update `processValue()` in `collector.go` (add the check **before** any broader pattern that would match it)
+1. Identify the JSON field in `pellematic_full.json`
+2. The collector automatically processes numeric fields from the full format (using `val` and `factor`)
+3. For the legacy non-full format, update `processValue()` in `collector.go` (add the check **before** any broader pattern)
 4. Update the README.md to document the new metric
 
 ### Adding a New Data Section
@@ -231,7 +244,7 @@ Follow the conventional commit format:
 
 If the boiler's JSON format changes:
 1. Capture the actual JSON output
-2. Update the `pellematic.json` example file
+2. Update the example files (`pellematic_full.json`, `pellematic.json`)
 3. Add string replacements in `fetchData()` (make sure to apply to the byte slice actually passed to `json.Unmarshal`)
 4. Test with real data
 
