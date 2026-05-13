@@ -11,13 +11,14 @@ A Prometheus exporter for Oekofen Pellematic pellet heating systems. It fetches 
 - Graceful shutdown on SIGINT
 - Development and production logging modes (structured JSON in production)
 - Online/offline tracking: when the boiler is unreachable, stale metrics are removed and errors are counted
+- Configuration via CLI flags or environment variables
 
 ## Supported Data Sections
 
 The exporter processes all top-level sections from the Pellematic full JSON endpoint (except `forecast`, which is skipped). Typical sections include:
 
-- **system**: System-wide metrics (ambient, errors, USB stick status, mode)
-- **weather**: Weather data (temperature, clouds, forecast, location)
+- **system**: System-wide metrics (ambient temperature, errors, USB stick status, mode)
+- **weather**: Weather data (temperature, clouds, forecast, thresholds)
 - **hk1**: Heating circuit 1 (room/flow temperatures, pump status, state)
 - **wireless1**: Wireless room sensor (temperature, humidity, battery, RSSI)
 - **ww1**: Domestic hot water (temperatures, pump status, state)
@@ -36,6 +37,15 @@ cd oekofen-pellematic-exporter
 go build -o oekofen-pellematic-exporter .
 ```
 
+### Docker
+
+A multi-arch (amd64/arm64) Docker image can be built and pushed using the justfile recipes:
+
+```bash
+just build           # Docker buildx
+just build-podman    # Podman
+```
+
 ## Usage
 
 ### Basic Usage
@@ -46,13 +56,15 @@ go build -o oekofen-pellematic-exporter .
   -addr :48400
 ```
 
-### Command-Line Options
+### Configuration
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-url` | `http://localhost/pellematic_full.json` | Pellematic boiler full JSON endpoint URL |
-| `-addr` | `:48400` | HTTP server listen address |
-| `-log` | `development` | Log mode: `development` or `production` |
+All options can be set via CLI flags or environment variables. Environment variables are used as defaults; CLI flags take precedence.
+
+| Flag | Env Variable | Default | Description |
+|------|-------------|---------|-------------|
+| `-url` | `BOILER_URL` | `http://localhost/pellematic_full.json` | Pellematic boiler full JSON endpoint URL |
+| `-addr` | `LISTEN_ADDR` | `:48400` | HTTP server listen address |
+| `-log` | `LOG_MODE` | `development` | Log mode: `development` or `production` |
 
 ### Docker
 
@@ -60,9 +72,9 @@ go build -o oekofen-pellematic-exporter .
 docker run -d \
   --name pellematic-exporter \
   -p 48400:48400 \
-  oekofen-pellematic-exporter \
-  -url http://192.168.1.100/pellematic_full.json \
-  -log production
+  -e BOILER_URL=http://192.168.1.100/pellematic_full.json \
+  -e LOG_MODE=production \
+  oekofen-pellematic-exporter
 ```
 
 ### Docker Compose
@@ -74,10 +86,9 @@ services:
     container_name: pellematic-exporter
     ports:
       - "48400:48400"
-    command:
-      - "-url=http://192.168.1.100/pellematic_full.json"
-      - "-addr=:48400"
-      - "-log=production"
+    environment:
+      - BOILER_URL=http://192.168.1.100/pellematic_full.json
+      - LOG_MODE=production
     restart: unless-stopped
 ```
 
@@ -115,7 +126,7 @@ When using the full JSON endpoint (`pellematic_full.json`), each field value is 
 The exporter uses this metadata to:
 - **Scale values** using the `factor` field (e.g., `523 * 0.1 = 52.3°C`)
 - **Provide descriptions** via the `text` field (used as Prometheus metric help)
-- **Skip unavailable data** when values match sentinel thresholds (`min`/`max` bounds)
+- **Skip unavailable data** when values match sentinel values (`32765`, `32767`, `-32768`)
 
 String-valued fields (names, URLs, update timestamps) are automatically skipped.
 
@@ -140,88 +151,88 @@ Below are the most commonly used metrics. Metric help text comes directly from t
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_system_ambient` | T extérieure (ambient temperature) |
-| `pellematic_system_errors` | Défaut (active errors) |
-| `pellematic_system_usb_stick` | Usb connectée |
-| `pellematic_system_existing_boiler` | T mes |
+| `pellematic_system_ambient` | Ambient temperature (T extérieure) |
+| `pellematic_system_errors` | Active errors (Défaut) |
+| `pellematic_system_usb_stick` | USB stick connected |
+| `pellematic_system_existing_boiler` | Measured temperature (T mes) |
 | `pellematic_system_mode` | Mode (0=Off, 1=Auto, 2=DHW) |
 
 #### Weather (`pellematic_weather_*`)
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_weather_temp` | Temp. actuelle (outdoor temperature) |
-| `pellematic_weather_clouds` | Couverture nuageuse actuelle |
-| `pellematic_weather_forecast_temp` | Température moyenne |
-| `pellematic_weather_forecast_clouds` | Nébulosité moyenne |
-| `pellematic_weather_cloud_limit` | Seuil météo |
-| `pellematic_weather_hysteresys` | Hyst. temp amb. pour arrêt fonction écolo |
-| `pellematic_weather_offtemp` | T°C ext. de coupure |
-| `pellematic_weather_lead` | Durée d'anticipation |
-| `pellematic_weather_oekomode` | Mode écolo |
+| `pellematic_weather_temp` | Current outdoor temperature |
+| `pellematic_weather_clouds` | Current cloud coverage |
+| `pellematic_weather_forecast_temp` | Forecast average temperature |
+| `pellematic_weather_forecast_clouds` | Forecast average cloudiness |
+| `pellematic_weather_cloud_limit` | Weather threshold |
+| `pellematic_weather_hysteresys` | Ambient temperature hysteresis for eco mode cutoff |
+| `pellematic_weather_offtemp` | Outdoor cutoff temperature |
+| `pellematic_weather_lead` | Anticipation duration (min) |
+| `pellematic_weather_oekomode` | Eco mode (0=Off, 1=On) |
 
 #### Heating Circuit 1 (`pellematic_hk1_*`)
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_hk1_roomtemp_act` | T ambiante (actual room temperature) |
-| `pellematic_hk1_roomtemp_set` | T Amb Cons (set room temperature) |
-| `pellematic_hk1_flowtemp_act` | T Dep mes (actual flow temperature) |
-| `pellematic_hk1_flowtemp_set` | T Dep cons (set flow temperature) |
-| `pellematic_hk1_comfort` | T°C de confort |
-| `pellematic_hk1_state` | Etat (state code) |
-| `pellematic_hk1_pump` | Chf Pompe (0=Off, 1=On) |
+| `pellematic_hk1_roomtemp_act` | Actual room temperature |
+| `pellematic_hk1_roomtemp_set` | Set room temperature |
+| `pellematic_hk1_flowtemp_act` | Actual flow temperature |
+| `pellematic_hk1_flowtemp_set` | Set flow temperature |
+| `pellematic_hk1_comfort` | Comfort temperature offset |
+| `pellematic_hk1_state` | State code |
+| `pellematic_hk1_pump` | Pump status (0=Off, 1=On) |
 | `pellematic_hk1_statetext{component="..."}` | State text components (value=1.0) |
-| `pellematic_hk1_temp_heat` | T ambiance confort |
-| `pellematic_hk1_temp_setback` | T ambiance réduit |
-| `pellematic_hk1_oekomode` | Mode écolo |
+| `pellematic_hk1_temp_heat` | Comfort ambient temperature |
+| `pellematic_hk1_temp_setback` | Setback ambient temperature |
+| `pellematic_hk1_oekomode` | Eco mode |
 
 #### Wireless Sensor (`pellematic_wireless1_*`)
 
 | Metric | Description |
 |--------|-------------|
 | `pellematic_wireless1_wireless_temp` | Temperature |
-| `pellematic_wireless1_wireless_hum` | Humidité de l'air |
-| `pellematic_wireless1_wireless_rssi` | Signal (RSSI) |
-| `pellematic_wireless1_wireless_batt` | Batterie (%) |
+| `pellematic_wireless1_wireless_hum` | Humidity |
+| `pellematic_wireless1_wireless_rssi` | Signal strength (RSSI) |
+| `pellematic_wireless1_wireless_batt` | Battery level (%) |
 
 #### Domestic Hot Water (`pellematic_ww1_*`)
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_ww1_temp_set` | Consigne ECS (set temperature) |
-| `pellematic_ww1_ontemp_act` | T démarrage (on temperature) |
-| `pellematic_ww1_offtemp_act` | T arrêt (off temperature) |
-| `pellematic_ww1_pump` | Pompe (0=Off, 1=On) |
-| `pellematic_ww1_state` | Etat (state code) |
+| `pellematic_ww1_temp_set` | DHW set temperature |
+| `pellematic_ww1_ontemp_act` | On temperature (actual) |
+| `pellematic_ww1_offtemp_act` | Off temperature (actual) |
+| `pellematic_ww1_pump` | Pump status (0=Off, 1=On) |
+| `pellematic_ww1_state` | State code |
 | `pellematic_ww1_statetext{component="..."}` | State text components (value=1.0) |
-| `pellematic_ww1_temp_max_set` | Consigne ECS (max set temperature) |
-| `pellematic_ww1_smartstart` | Charge ECS anticipée |
-| `pellematic_ww1_use_boiler_heat` | Energie restante utilisée |
+| `pellematic_ww1_temp_max_set` | Max set temperature |
+| `pellematic_ww1_smartstart` | Anticipated DHW charge (min) |
+| `pellematic_ww1_use_boiler_heat` | Remaining energy used (0=Off, 1=On) |
 
 #### Pellet Boiler (`pellematic_pe1_*`)
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_pe1_temp_act` | PE T Chaudière (actual boiler temperature) |
-| `pellematic_pe1_temp_set` | TC Ret cons (set temperature) |
-| `pellematic_pe1_frt_temp_act` | T flamme (flame temperature) |
-| `pellematic_pe1_modulation` | Niveau de Modulation (%) |
-| `pellematic_pe1_runtime` | t fonct brûleur (total runtime, in hours) |
-| `pellematic_pe1_avg_runtime` | PE t moyen brûleur (avg runtime, in minutes) |
-| `pellematic_pe1_runtimeburner` | t marche vis brûleur (burner runtime) |
-| `pellematic_pe1_resttimeburner` | temps pause (burner rest time) |
-| `pellematic_pe1_starts` | démarrage brûl (total burner starts) |
-| `pellematic_pe1_lowpressure` | Dépression |
-| `pellematic_pe1_lowpressure_set` | Valeur cons. dépression |
-| `pellematic_pe1_fluegas` | vitesse V fumées |
-| `pellematic_pe1_uw_speed` | vitesse UW (%) |
-| `pellematic_pe1_uw` | PE vitesse UW |
-| `pellematic_pe1_uw_release` | T limite |
-| `pellematic_pe1_storage_fill` | quantité granulés dans silo (kg) |
-| `pellematic_pe1_storage_min` | Seuil alerte granulés (kg) |
-| `pellematic_pe1_storage_max` | Capacité max. stockage (kg) |
-| `pellematic_pe1_storage_popper` | Pellet dans trémie (kg) |
+| `pellematic_pe1_temp_act` | Actual boiler temperature |
+| `pellematic_pe1_temp_set` | Set temperature |
+| `pellematic_pe1_frt_temp_act` | Flame temperature |
+| `pellematic_pe1_modulation` | Modulation level (%) |
+| `pellematic_pe1_runtime` | Total burner runtime (hours) |
+| `pellematic_pe1_avg_runtime` | Average burner runtime (minutes) |
+| `pellematic_pe1_runtimeburner` | Burner runtime |
+| `pellematic_pe1_resttimeburner` | Burner rest time |
+| `pellematic_pe1_starts` | Total burner starts |
+| `pellematic_pe1_lowpressure` | Draft depression |
+| `pellematic_pe1_lowpressure_set` | Set draft depression |
+| `pellematic_pe1_fluegas` | Flue gas velocity |
+| `pellematic_pe1_uw_speed` | UW speed (%) |
+| `pellematic_pe1_uw` | UW speed |
+| `pellematic_pe1_uw_release` | Limit temperature |
+| `pellematic_pe1_storage_fill` | Pellets in silo (kg) |
+| `pellematic_pe1_storage_min` | Pellet alert threshold (kg) |
+| `pellematic_pe1_storage_max` | Max storage capacity (kg) |
+| `pellematic_pe1_storage_popper` | Pellets in hopper (kg) |
 | `pellematic_pe1_statetext{component="..."}` | State text components (value=1.0) |
 
 Additional pe1 fields (`L_br`, `L_ak`, `L_not`, `L_stb`, `L_type`, `L_currentairflow`, `mode`) are also exposed.
@@ -256,6 +267,8 @@ When using the non-full JSON endpoint, heuristic scaling is applied based on fie
 | `starts`, `modulation`, `lowpressure`, `_uw`, `_fluegas`, `storage_fill`, `pellets` | No scaling | Raw value used as-is |
 | All other fields | No scaling | Raw value used as-is |
 
+**Note**: The legacy heuristics have known shadowing bugs. Fields like `avg_runtime`, `runtimeburner`, and `resttimeburner` are all matched by the `runtime` check (multiply by 3600), which is incorrect for the former two. The full format avoids these entirely by using the `factor` field.
+
 ## Development
 
 ### Prerequisites
@@ -280,7 +293,19 @@ go test -v -timeout=60s ./...
 go build ./...          # Compile check
 gofmt -d -e             # Check formatting
 gofmt -s -w .           # Fix formatting
-staticcheck ./...       # Static analysis
+staticcheck ./...       # Static analysis (use: just lint)
+```
+
+### Manual Testing
+
+Use the provided test data for testing the collector:
+
+```bash
+# Serve the test data
+python3 -m http.server 8000
+
+# Run against the test data
+go run . -url http://localhost:8000/testdata/pellematic.json
 ```
 
 ### Cross-Compilation
@@ -303,7 +328,7 @@ Consider alerting on:
 ### Connection Errors
 
 If you see "Failed to fetch data" errors:
-- Verify the `-url` parameter points to the correct Pellematic JSON endpoint
+- Verify the `-url` parameter (or `BOILER_URL` env var) points to the correct Pellematic JSON endpoint
 - Check network connectivity to the boiler
 - Ensure the boiler's web interface is accessible (try opening the URL in a browser)
 

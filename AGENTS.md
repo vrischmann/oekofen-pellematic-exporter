@@ -18,11 +18,11 @@ gofmt -d -e
 # Reformat code if needed (fix formatting issues)
 gofmt -s -w .
 
-# Run static analysis
+# Run static analysis (use: just lint)
 staticcheck ./...
 
 # Run tests
-go test -v -timeout=60s
+go test -v -timeout=60s ./...
 ```
 
 **Note**: Always use these exact arguments when running these tools, as they match the project's conventions.
@@ -32,28 +32,25 @@ go test -v -timeout=60s
 To run the exporter locally:
 
 ```bash
-go run oekofen-pellematic-exporter
+go run .
 ```
 
 With custom configuration:
 
 ```bash
-go run oekofen-pellematic-exporter -url http://192.168.1.100/pellematic_full.json -addr :48400
+go run . -url http://192.168.1.100/pellematic_full.json -addr :48400
 ```
 
 ### Manual Testing
 
-Use the provided JSON files for testing the collector:
+Use the provided test data file for testing the collector:
 
 ```bash
-# Serve the example files
+# Serve the test data
 python3 -m http.server 8000
 
-# Run against the full format (recommended)
-go run . -url http://localhost:8000/pellematic_full.json
-
-# Run against the non-full format (backward compat)
-go run . -url http://localhost:8000/pellematic.json
+# Run against the test data
+go run . -url http://localhost:8000/testdata/pellematic.json
 ```
 
 ## Dependency Management
@@ -83,13 +80,17 @@ Run `go mod tidy` after:
 .
 ├── main.go              # Application entry point, HTTP server setup, graceful shutdown
 ├── collector.go         # Metrics collection, processing, and scraping logic
-├── config.go            # CLI flag parsing and logger setup
+├── collector_test.go    # Tests for collector, metric helpers, and statetext processing
+├── config.go            # CLI flag/env var parsing and logger setup
 ├── metrics.go           # Metric naming and label building utilities
-├── pellematic.json      # Example JSON data from boiler (non-full format)
-├── pellematic_full.json # Example JSON data from boiler (full format, recommended)
+├── Dockerfile           # Multi-arch Docker build (distroless, nonroot)
+├── justfile             # Build recipes (docker/podman images, lint)
+├── testdata/
+│   └── pellematic.json  # Example JSON data from boiler (full format)
 ├── go.mod               # Go module definition
 ├── go.sum               # Dependency checksums
-└── .gitignore           # Git ignore patterns (excludes binaries)
+├── .gitignore           # Git ignore patterns (excludes binaries)
+└── .pi/                 # Pi agent state
 ```
 
 ## Key Components
@@ -100,7 +101,7 @@ The entry point:
 - Parses configuration and sets up logging
 - Creates a Prometheus registry and registers the collector
 - Starts the collector in a background goroutine (driven by context)
-- Serves metrics via an HTTP handler
+- Serves metrics via an HTTP handler on `/metrics`
 - Handles graceful shutdown on `SIGINT` (5-second timeout)
 
 ### Collector (`collector.go`)
@@ -111,20 +112,35 @@ The core component, responsible for:
 - Processing and scaling metric values
 - Managing connection state (online/offline)
 - Exposing Prometheus metrics via `Describe`/`Collect` interface
-- Running a periodic refresh loop via `Start(ctx)`
+- Running a periodic refresh loop via `Start(ctx)` (30s interval)
 
 ### Config (`config.go`)
 
-Configuration via command-line flags:
-- `-url`: Pellematic full JSON endpoint URL (default: `http://localhost/pellematic_full.json`)
-- `-addr`: HTTP server listen address (default: `:48400`)
-- `-log`: Logging mode, `development` or `production` (default: `development`)
+Configuration via CLI flags with environment variable fallbacks:
+- `-url` / `BOILER_URL`: Pellematic full JSON endpoint URL (default: `http://localhost/pellematic_full.json`)
+- `-addr` / `LISTEN_ADDR`: HTTP server listen address (default: `:48400`)
+- `-log` / `LOG_MODE`: Logging mode, `development` or `production` (default: `development`)
+
+Environment variables serve as defaults; CLI flags take precedence.
 
 ### Metric Naming (`metrics.go`)
 
 Metric names follow the pattern: `pellematic_{section}_{field}`
 
 The `cleanLabelName` function lowercases field names and strips the `L_` prefix. The `componentName` parameter in `buildMetricName` is currently always passed as `""` and unused.
+
+### Tests (`collector_test.go`)
+
+Table-driven tests covering:
+- Full integration: fetch, parse, and metric collection against `testdata/pellematic.json`
+- Factor scaling verification (temperatures, raw values)
+- Sentinel value filtering
+- String field and `*_info` key skipping
+- Statetext component splitting
+- Error scenarios (server errors, invalid JSON, connection refused)
+- Unit tests for helpers: `isSentinelValue`, `toFloat64`, `cleanLabelName`, `buildMetricName`, `processValue`, `processStateText`
+
+Uses `testify/require` for assertions and `zaptest` for test logging. Test helpers create `httptest.Server` instances to mock the boiler HTTP endpoint.
 
 ## Data Processing Rules
 
@@ -184,7 +200,7 @@ The Pellematic boiler returns data in **ISO-8859-1** encoding. The exporter deco
 
 ### JSON Quirks
 
-The boiler's JSON is not always valid. The code attempts to apply a string replacement (`L_statetext:` to `L_statetext":`) but applies it to `bodyStr` (a Go string) while `json.Unmarshal` receives the original `body` byte slice. This means the fix is currently a no-op. If you need to fix malformed JSON, apply the replacement to the byte slice before unmarshalling.
+The boiler's JSON is not always valid. The code applies a string replacement (`L_statetext:` to `L_statetext":`) to the decoded body string before unmarshalling. This fixes cases where the statetext value is missing its closing quote.
 
 ### Error Handling
 
@@ -205,7 +221,9 @@ The collector tracks online/offline state with mutex protection:
 
 When adding tests:
 - Use table-driven tests for multiple test cases
-- Mock HTTP responses for testing collector logic
+- Use `newTestCollector()` helper to create a collector backed by `httptest.Server`
+- Use `gatherMetrics()` to collect and inspect metric values
+- Use `requireMetric()` and `requireNoMetric()` for assertions
 - Test both success and failure scenarios
 - Verify metric names, values, and labels
 
@@ -229,7 +247,7 @@ Follow the conventional commit format:
 
 ### Adding a New Metric
 
-1. Identify the JSON field in `pellematic_full.json`
+1. Identify the JSON field in `testdata/pellematic.json`
 2. The collector automatically processes numeric fields from the full format (using `val` and `factor`)
 3. For the legacy non-full format, update `processValue()` in `collector.go` (add the check **before** any broader pattern)
 4. Update the README.md to document the new metric
@@ -244,8 +262,8 @@ Follow the conventional commit format:
 
 If the boiler's JSON format changes:
 1. Capture the actual JSON output
-2. Update the example files (`pellematic_full.json`, `pellematic.json`)
-3. Add string replacements in `fetchData()` (make sure to apply to the byte slice actually passed to `json.Unmarshal`)
+2. Update the test data file (`testdata/pellematic.json`)
+3. Add string replacements in `fetchData()` (applied to the decoded body string before unmarshalling)
 4. Test with real data
 
 ## Dependencies
@@ -255,6 +273,10 @@ If the boiler's JSON format changes:
 - `github.com/prometheus/client_golang` v1.23.2 - Prometheus client library
 - `go.uber.org/zap` v1.27.1 - Structured logging
 - `golang.org/x/text` v0.32.0 - Character encoding support (ISO-8859-1)
+
+### Test Dependencies
+
+- `github.com/stretchr/testify` v1.11.1 - Test assertions
 
 ## Build Artifacts
 
@@ -275,14 +297,14 @@ GOOS=linux GOARCH=arm64 go build -o oekofen-pellematic-exporter-linux-arm64 .
 
 ### Prometheus Scrape Interval
 
-Match the exporter's refresh interval:
-- If `-interval=30s`, set `scrape_interval: 30s` in Prometheus
+Match the exporter's refresh interval (hardcoded 30s):
+- Set `scrape_interval: 30s` in Prometheus
 - Avoid scraping more frequently than data refreshes
 
 ### Alerting Recommendations
 
 Consider alerting on:
 - `pellematic_scrape_errors_total` increasing
-- `pellematic_system_l_errors` > 0
-- `pellematic_wireless1_l_wireless_batt` < 20 (low battery)
+- `pellematic_system_errors` > 0
+- `pellematic_wireless1_wireless_batt` < 20 (low battery)
 - Temperature deviations beyond normal ranges
