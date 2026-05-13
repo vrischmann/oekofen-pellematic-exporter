@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 )
 
-type PellematicData map[string]interface{}
+type PellematicData map[string]any
 
 type Collector struct {
 	config       *Config
@@ -81,7 +81,9 @@ func (c *Collector) fetchData() (*PellematicData, error) {
 	return &data, nil
 }
 
-func (c *Collector) processValue(field string, value interface{}) float64 {
+// processValue applies heuristic scaling for the non-full JSON format.
+// Used as a fallback when field values are plain scalars.
+func (c *Collector) processValue(field string, value any) float64 {
 	var floatValue float64
 
 	switch v := value.(type) {
@@ -174,14 +176,39 @@ func (c *Collector) updateMetrics() {
 		}
 
 		switch v := sectionData.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			c.processSection(sectionName, v)
 		}
 	}
 }
 
-func (c *Collector) processSection(prefix string, section map[string]interface{}) {
+// isSentinelValue checks if a numeric value is a sentinel indicating unavailable data.
+func isSentinelValue(v float64) bool {
+	return v == 32765 || v == 32767 || v == -32768
+}
+
+// toFloat64 converts a numeric any to float64.
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func (c *Collector) processSection(prefix string, section map[string]any) {
 	for key, value := range section {
+		// Skip section metadata keys (e.g. system_info, hk_info, pe_info)
+		if strings.HasSuffix(key, "_info") {
+			continue
+		}
+
+		// Handle statetext (plain string, never wrapped)
 		if key == "L_statetext" {
 			if textValue, ok := value.(string); ok {
 				metrics := c.processStateText(prefix, textValue)
@@ -192,6 +219,54 @@ func (c *Collector) processSection(prefix string, section map[string]interface{}
 
 		metricName := buildMetricName(prefix, "", key)
 
+		// Full format: value is a map with val, factor, text, etc.
+		if fieldData, ok := value.(map[string]any); ok {
+			rawVal, exists := fieldData["val"]
+			if !exists {
+				continue
+			}
+
+			// Skip string-valued fields (names, URLs, timestamps, etc.)
+			if _, isString := rawVal.(string); isString {
+				c.logger.Debug("Skipping string field", zap.String("field", key))
+				continue
+			}
+
+			floatVal, ok := toFloat64(rawVal)
+			if !ok {
+				continue
+			}
+
+			// Check sentinel values
+			if isSentinelValue(floatVal) {
+				c.logger.Debug("Skipping sentinel value", zap.String("field", key), zap.Float64("value", floatVal))
+				continue
+			}
+
+			// Apply factor from metadata (default 1.0)
+			factor := 1.0
+			if f, ok := fieldData["factor"]; ok {
+				if fVal, ok := toFloat64(f); ok {
+					factor = fVal
+				}
+			}
+			scaledValue := floatVal * factor
+
+			// Use text field as metric help
+			helpText := fmt.Sprintf("%s metric", key)
+			if text, ok := fieldData["text"]; ok {
+				if textStr, ok := text.(string); ok && textStr != "" {
+					helpText = textStr
+				}
+			}
+
+			desc := prometheus.NewDesc(metricName, helpText, nil, nil)
+			metric := prometheus.MustNewConstMetric(desc, prometheus.UntypedValue, scaledValue)
+			c.metrics[metricName] = []prometheus.Metric{metric}
+			continue
+		}
+
+		// Fallback: non-full format with plain scalar values
 		intValue, ok := value.(int)
 		if ok {
 			if intValue == 32765 || intValue == 32767 || intValue == -32768 {
@@ -201,7 +276,6 @@ func (c *Collector) processSection(prefix string, section map[string]interface{}
 		}
 
 		scaledValue := c.processValue(key, value)
-
 		desc := prometheus.NewDesc(metricName, fmt.Sprintf("%s metric", key), nil, nil)
 		metric := prometheus.MustNewConstMetric(desc, prometheus.UntypedValue, scaledValue)
 		c.metrics[metricName] = []prometheus.Metric{metric}
