@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"os"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -18,11 +17,11 @@ func parseConfig() *Config {
 	cfg := &Config{}
 
 	// Defaults: env vars override hardcoded defaults, CLI flags override env vars
-	defaultURL := envOrDefault("BOILER_URL", "http://localhost/pellematic.json")
+	defaultURL := envOrDefault("BOILER_URL", "http://localhost/pellematic_full.json")
 	defaultAddr := envOrDefault("LISTEN_ADDR", ":48400")
-	defaultLog := envOrDefault("PELLEMATIC_LOG", "development")
+	defaultLog := envOrDefault("LOG_MODE", "development")
 
-	flag.StringVar(&cfg.BoilerURL, "url", defaultURL, "Pellematic boiler JSON endpoint URL")
+	flag.StringVar(&cfg.BoilerURL, "url", defaultURL, "Pellematic boiler full JSON endpoint URL")
 	flag.StringVar(&cfg.ListenAddress, "addr", defaultAddr, "HTTP server listen address")
 	logMode := flag.String("log", defaultLog, "Log mode: development or production")
 	flag.Parse()
@@ -37,14 +36,6 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func parseDuration(s string) time.Duration {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 30 * time.Second
-	}
-	return d
 }
 
 func setupLogger(productionMode bool) *zap.Logger {
