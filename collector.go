@@ -49,7 +49,7 @@ func NewCollector(cfg *Config, logger *zap.Logger) *Collector {
 }
 
 func (c *Collector) fetchData() (*PellematicData, error) {
-	req, err := http.NewRequest("GET", c.config.PelletmaticURL, nil)
+	req, err := http.NewRequest("GET", c.config.BoilerURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

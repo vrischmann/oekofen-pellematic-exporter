@@ -9,7 +9,7 @@ import (
 )
 
 type Config struct {
-	PelletmaticURL string
+	BoilerURL      string
 	ListenAddress  string
 	ProductionMode bool
 }
@@ -18,11 +18,11 @@ func parseConfig() *Config {
 	cfg := &Config{}
 
 	// Defaults: env vars override hardcoded defaults, CLI flags override env vars
-	defaultURL := envOrDefault("PELLEMATIC_URL", "http://localhost/pellematic.json")
+	defaultURL := envOrDefault("BOILER_URL", "http://localhost/pellematic.json")
 	defaultAddr := envOrDefault("LISTEN_ADDR", ":48400")
 	defaultLog := envOrDefault("PELLEMATIC_LOG", "development")
 
-	flag.StringVar(&cfg.PelletmaticURL, "url", defaultURL, "Pellematic boiler JSON endpoint URL")
+	flag.StringVar(&cfg.BoilerURL, "url", defaultURL, "Pellematic boiler JSON endpoint URL")
 	flag.StringVar(&cfg.ListenAddress, "addr", defaultAddr, "HTTP server listen address")
 	logMode := flag.String("log", defaultLog, "Log mode: development or production")
 	flag.Parse()

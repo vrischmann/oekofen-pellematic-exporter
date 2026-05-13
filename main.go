@@ -18,7 +18,7 @@ func main() {
 	logger := setupLogger(cfg.ProductionMode)
 	logger.Info(
 		"Starting Pellematic exporter",
-		zap.String("url", cfg.PelletmaticURL),
+		zap.String("url", cfg.BoilerURL),
 	)
 
 	collector := NewCollector(cfg, logger)
