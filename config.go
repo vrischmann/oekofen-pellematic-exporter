@@ -9,11 +9,9 @@ import (
 )
 
 type Config struct {
-	PelletmaticURL  string
-	ListenAddress   string
-	MetricsPath     string
-	RefreshInterval time.Duration
-	ProductionMode  bool
+	PelletmaticURL string
+	ListenAddress  string
+	ProductionMode bool
 }
 
 func parseConfig() *Config {
@@ -21,15 +19,11 @@ func parseConfig() *Config {
 
 	// Defaults: env vars override hardcoded defaults, CLI flags override env vars
 	defaultURL := envOrDefault("PELLEMATIC_URL", "http://localhost/pellematic.json")
-	defaultAddr := envOrDefault("PELLEMATIC_ADDR", ":48400")
-	defaultPath := envOrDefault("PELLEMATIC_PATH", "/metrics")
-	defaultInterval := envOrDefault("PELLEMATIC_INTERVAL", "30s")
+	defaultAddr := envOrDefault("LISTEN_ADDR", ":48400")
 	defaultLog := envOrDefault("PELLEMATIC_LOG", "development")
 
 	flag.StringVar(&cfg.PelletmaticURL, "url", defaultURL, "Pellematic boiler JSON endpoint URL")
 	flag.StringVar(&cfg.ListenAddress, "addr", defaultAddr, "HTTP server listen address")
-	flag.StringVar(&cfg.MetricsPath, "path", defaultPath, "Metrics endpoint path")
-	flag.DurationVar(&cfg.RefreshInterval, "interval", parseDuration(defaultInterval), "Data refresh interval")
 	logMode := flag.String("log", defaultLog, "Log mode: development or production")
 	flag.Parse()
 

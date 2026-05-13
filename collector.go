@@ -259,7 +259,7 @@ func (c *Collector) setOnline(online bool) {
 }
 
 func (c *Collector) Start(ctx context.Context) {
-	ticker := time.NewTicker(c.config.RefreshInterval)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	c.updateMetrics()

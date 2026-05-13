@@ -14,10 +14,11 @@ import (
 
 func main() {
 	cfg := parseConfig()
+
 	logger := setupLogger(cfg.ProductionMode)
-	logger.Info("Starting Pellematic exporter",
+	logger.Info(
+		"Starting Pellematic exporter",
 		zap.String("url", cfg.PelletmaticURL),
-		zap.Duration("interval", cfg.RefreshInterval),
 	)
 
 	collector := NewCollector(cfg, logger)
@@ -31,7 +32,7 @@ func main() {
 	go collector.Start(ctx)
 
 	handler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
-	http.HandleFunc(cfg.MetricsPath, func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r)
 	})
 
