@@ -25,4 +25,6 @@ build-podman:
 
 # Lint the code
 lint:
+    gofmt -d -e .
+    go vet ./...
     staticcheck ./...
