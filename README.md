@@ -4,10 +4,9 @@ A Prometheus exporter for Oekofen Pellematic pellet heating systems. It fetches 
 
 ## Features
 
-- Fetches metrics from Oekofen Pellematic boilers via their full JSON endpoint
+- Fetches metrics from Oekofen Pellematic boilers via their JSON endpoint
 - Data-driven metric scaling using the `factor` field from the boiler's telemetry
 - Human-readable metric descriptions from the boiler's own `text` metadata
-- Backward compatible with the non-full JSON endpoint
 - Graceful shutdown on SIGINT
 - Development and production logging modes (structured JSON in production)
 - Online/offline tracking: when the boiler is unreachable, stale metrics are removed and errors are counted
@@ -15,7 +14,7 @@ A Prometheus exporter for Oekofen Pellematic pellet heating systems. It fetches 
 
 ## Supported Data Sections
 
-The exporter processes all top-level sections from the Pellematic full JSON endpoint (except `forecast`, which is skipped). Typical sections include:
+The exporter processes all top-level sections from the Pellematic JSON endpoint (except `forecast`, which is skipped). Typical sections include:
 
 - **system**: System-wide metrics (ambient temperature, errors, USB stick status, mode)
 - **weather**: Weather data (temperature, clouds, forecast, thresholds)
@@ -62,7 +61,7 @@ All options can be set via CLI flags or environment variables. Environment varia
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
-| `-url` | `BOILER_URL` | `http://localhost/pellematic_full.json` | Pellematic boiler full JSON endpoint URL |
+| `-url` | `BOILER_URL` | `http://localhost/pellematic_full.json` | Pellematic boiler JSON endpoint URL |
 | `-addr` | `LISTEN_ADDR` | `:48400` | HTTP server listen address |
 | `-log` | `LOG_MODE` | `development` | Log mode: `development` or `production` |
 
@@ -115,9 +114,9 @@ All metrics follow the pattern `pellematic_{section}_{field}`, where:
 
 For example, JSON field `pe1.L_temp_act` becomes metric `pellematic_pe1_temp_act`.
 
-## Full JSON Format
+## JSON Format
 
-When using the full JSON endpoint (`pellematic_full.json`), each field value is an object containing rich metadata:
+When using the JSON endpoint (`pellematic_full.json`), each field value is an object containing rich metadata:
 
 ```json
 "L_temp_act": {"val": 523, "unit": "°C", "factor": 0.1, "min": -32768, "max": 32767, "text": "PE T Chaudière"}
@@ -130,10 +129,6 @@ The exporter uses this metadata to:
 
 String-valued fields (names, URLs, update timestamps) are automatically skipped.
 
-### Backward Compatibility
-
-The exporter also supports the non-full JSON endpoint (`pellematic.json`) where values are plain scalars. In this mode, heuristic-based scaling is applied (see legacy scaling rules below). The format is auto-detected per field.
-
 ## Available Metrics
 
 ### Scrape Metrics (always present)
@@ -145,7 +140,7 @@ The exporter also supports the non-full JSON endpoint (`pellematic.json`) where 
 
 ### Example Metrics by Section
 
-Below are the most commonly used metrics. Metric help text comes directly from the boiler's `text` metadata when using the full JSON endpoint.
+Below are the most commonly used metrics. Metric help text comes directly from the boiler's `text` metadata.
 
 #### System (`pellematic_system_*`)
 
@@ -239,9 +234,9 @@ Additional pe1 fields (`L_br`, `L_ak`, `L_not`, `L_stb`, `L_type`, `L_currentair
 
 ## Metric Scaling
 
-### Full JSON Format (recommended)
+### JSON Format
 
-When using the full JSON endpoint, scaling is **data-driven**: each field carries a `factor` that the exporter applies automatically. For example:
+When using the JSON endpoint, scaling is **data-driven**: each field carries a `factor` that the exporter applies automatically. For example:
 
 | Field | Raw `val` | `factor` | Exported Value | Unit |
 |-------|-----------|----------|----------------|------|
@@ -251,23 +246,9 @@ When using the full JSON endpoint, scaling is **data-driven**: each field carrie
 | `L_lowpressure` | 449 | 0.1 | 44.9 | EH |
 | `L_starts` | 1605 | 1 | 1605 | - |
 
-This eliminates the heuristic-based scaling used with the non-full endpoint, and correctly handles fields that were previously mis-scaled (e.g., `L_lowpressure`, `L_runtimeburner`).
+This eliminates the need for heuristic-based scaling and correctly handles all fields using the boiler's own `factor` metadata.
 
 **Sentinel values** `32765`, `32767`, and `-32768` indicate unavailable data and are skipped entirely.
-
-### Legacy Scaling (non-full format)
-
-When using the non-full JSON endpoint, heuristic scaling is applied based on field name patterns:
-
-| Field Contains | Scaling | Example |
-|----------------|---------|---------|
-| `temp` | Divided by 10 | Raw `185` becomes `18.5` |
-| `runtime` | Multiplied by 3600 | Raw `775` becomes `2,790,000` (seconds) |
-| `humidity` or `hum` | Divided by 10 | Raw `404` becomes `40.4` |
-| `starts`, `modulation`, `lowpressure`, `_uw`, `_fluegas`, `storage_fill`, `pellets` | No scaling | Raw value used as-is |
-| All other fields | No scaling | Raw value used as-is |
-
-**Note**: The legacy heuristics have known shadowing bugs. Fields like `avg_runtime`, `runtimeburner`, and `resttimeburner` are all matched by the `runtime` check (multiply by 3600), which is incorrect for the former two. The full format avoids these entirely by using the `factor` field.
 
 ## Development
 
@@ -341,8 +322,7 @@ If no section metrics appear:
 
 ### Incorrect Values
 
-- When using the full endpoint, values are scaled by the `factor` field provided by the boiler itself
-- When using the non-full endpoint, temperatures are automatically divided by 10 and runtimes multiplied by 3600
+- Values are scaled by the `factor` field provided by the boiler itself
 - Sentinel values (32765, 32767, -32768) are automatically filtered out
 
 ## License
