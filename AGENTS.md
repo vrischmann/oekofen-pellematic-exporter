@@ -227,22 +227,6 @@ When adding tests:
 - Test both success and failure scenarios
 - Verify metric names, values, and labels
 
-## Conventional Commits
-
-Follow the conventional commit format:
-
-```
-<type>(<scope>): <description>
-```
-
-**Types:** `feat`, `fix`, `chore`, `refactor`, `docs`, `style`, `test`, `perf`
-
-**Examples:**
-- `feat(collector): add support for additional sensor types`
-- `fix(collector): correct temperature scaling for negative values`
-- `chore(deps): update prometheus client to v1.23.2`
-- `docs(readme): add docker compose example`
-
 ## Common Tasks
 
 ### Adding a New Metric
