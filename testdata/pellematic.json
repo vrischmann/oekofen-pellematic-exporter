@@ -17,7 +17,7 @@
   "L_starttime":{"val":930, "factor":1, "min":-32768, "max":32767, "text":"Heure début"}, 
   "L_endtime":{"val":1940, "factor":1, "min":-32768, "max":32767, "text":"Heure fin"}, 
   "L_source":{"val":"https://www.openweathermap.org", "length":20, "text":"Info"}, 
-  "L_location":{"val":"Roubaix|FR|2982681", "length":20, "text":"Localité"}, 
+  "L_location":{"val":"Paris|FR|2988507", "length":20, "text":"Localité"}, 
   "cloud_limit":{"val":55, "unit":"%", "factor":1, "min":0, "max":100, "text":"Seuil météo"}, 
   "hysteresys":{"val":-40, "unit":"K", "factor":0.1, "min":-200, "max":0, "text":"Hyst. temp amb. pour arrêt fonction écolo"}, 
   "offtemp":{"val":-100, "unit":"°C", "factor":0.1, "min":-300, "max":200, "text":"T°C ext. de coupure"}, 

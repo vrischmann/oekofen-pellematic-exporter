@@ -31,7 +31,7 @@ Additional sections (hk2, ww2, pe2, etc.) are automatically processed if present
 ### From Source
 
 ```bash
-git clone ssh://git@git.rischmann.fr/vincent/oekofen-pellematic-exporter.git
+git clone https://github.com/vrischmann/oekofen-pellematic-exporter.git
 cd oekofen-pellematic-exporter
 go build -o oekofen-pellematic-exporter .
 ```
