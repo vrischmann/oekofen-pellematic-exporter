@@ -1,4 +1,4 @@
-image := "registry.tail04bc6.ts.net/oekofen-pellematic-exporter"
+image := "ghcr.io/vrischmann/oekofen-pellematic-exporter"
 tag := "latest"
 
 # Build and push the multi-arch Docker image
