@@ -1,2 +1,5 @@
 /exporter
 /oekofen-pellematic-exporter
+
+# Pi agent state
+/.pi/
