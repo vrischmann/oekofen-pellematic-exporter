@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -38,6 +40,22 @@ var (
 	})
 )
 
+// errRateLimited is returned when the boiler rejects a request with 401. The
+// boiler does this when too many requests arrive within its ~2.5s window, e.g.
+// because another client (the Home Assistant integration) polled it just before
+// us.
+var errRateLimited = errors.New("rate limited by boiler")
+
+const (
+	refreshInterval = 30 * time.Second
+
+	// On a rate-limit we delay the next fetch by random jitter so we drift out of
+	// phase with other clients. minJitter is above the boiler's ~2.5s request
+	// window, so a single jittered fetch is enough to escape a collision.
+	minJitter = 5 * time.Second
+	maxJitter = 30 * time.Second
+)
+
 func NewCollector(cfg *Config, logger *zap.Logger) *Collector {
 	return &Collector{
 		config:   cfg,
@@ -60,6 +78,9 @@ func (c *Collector) fetchData() (*PellematicData, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, errRateLimited
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
@@ -151,13 +172,16 @@ func (c *Collector) processStateText(prefix string, statetext string) []promethe
 	return metrics
 }
 
-func (c *Collector) updateMetrics() {
+// updateMetrics fetches the latest data from the boiler and refreshes the
+// cached metrics. It reports whether the boiler rejected the request as
+// rate-limited (401), so the caller can jitter the next fetch.
+func (c *Collector) updateMetrics() bool {
 	newData, err := c.fetchData()
 	if err != nil {
 		c.logger.Warn("Failed to fetch data", zap.Error(err))
 		scrapeErrors.Inc()
 		c.setOnline(false)
-		return
+		return errors.Is(err, errRateLimited)
 	}
 
 	c.setOnline(true)
@@ -180,6 +204,8 @@ func (c *Collector) updateMetrics() {
 			c.processSection(sectionName, v)
 		}
 	}
+
+	return false
 }
 
 // isSentinelValue checks if a numeric value is a sentinel indicating unavailable data.
@@ -333,18 +359,29 @@ func (c *Collector) setOnline(online bool) {
 }
 
 func (c *Collector) Start(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	c.updateMetrics()
+	// A timer (rather than a fixed ticker) lets us shift the next fetch when the
+	// boiler rate-limits us, so we drift out of phase with other clients.
+	timer := time.NewTimer(0) // fire immediately for the first fetch
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			c.logger.Info("Collector shutting down")
 			return
-		case <-ticker.C:
-			c.updateMetrics()
+		case <-timer.C:
+			rateLimited := c.updateMetrics()
+
+			next := refreshInterval
+			if rateLimited {
+				jitter := minJitter + time.Duration(rand.Int64N(int64(maxJitter-minJitter)))
+				c.logger.Warn("Rate limited by boiler, jittering next fetch",
+					zap.Duration("jitter", jitter),
+					zap.Duration("next_in", next+jitter),
+				)
+				next += jitter
+			}
+			timer.Reset(next)
 		}
 	}
 }

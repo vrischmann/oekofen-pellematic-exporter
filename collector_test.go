@@ -183,6 +183,29 @@ func TestCollector_Statetext(t *testing.T) {
 	requireMetric(t, metrics, `pellematic_ww1_statetext{component="Demande marche off"}`, 1.0)
 }
 
+func TestCollector_FetchError_RateLimited(t *testing.T) {
+	// The boiler returns 401 when too many requests arrive within its window.
+	// updateMetrics must report this so the caller can jitter the next fetch.
+	collector, _ := newTestCollector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+
+	rateLimited := collector.updateMetrics()
+	require.True(t, rateLimited, "expected updateMetrics to report rate-limited on 401")
+	require.False(t, collector.isOnline, "expected collector to be offline after 401")
+}
+
+func TestCollector_FetchError_ServerErrorNotRateLimited(t *testing.T) {
+	// A generic error (e.g. 500) must not be reported as rate-limited.
+	collector, _ := newTestCollector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	rateLimited := collector.updateMetrics()
+	require.False(t, rateLimited, "500 must not be reported as rate-limited")
+	require.False(t, collector.isOnline, "expected collector to be offline after server error")
+}
+
 func TestCollector_FetchError_ServerError(t *testing.T) {
 	collector, _ := newTestCollector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
