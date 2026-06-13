@@ -4,6 +4,8 @@
 
 A Go-based Prometheus exporter for Oekofen Pellematic pellet heating systems. The exporter fetches JSON data from the boiler's web interface and converts it to Prometheus metrics for monitoring and alerting.
 
+The module and Dockerfile pin Go 1.25.7 (`go.mod` requires `go 1.25.7`, `Dockerfile` uses `golang:1.25.7`).
+
 ## Code Validation Commands
 
 Before committing changes, always run the following commands to ensure code quality:
@@ -13,7 +15,7 @@ Before committing changes, always run the following commands to ensure code qual
 go build ./...
 
 # Check code formatting
-gofmt -d -e
+gofmt -d -e .
 
 # Reformat code if needed (fix formatting issues)
 gofmt -s -w .
@@ -87,11 +89,15 @@ Run `go mod tidy` after:
 ├── justfile             # Build recipes (docker/podman images, lint)
 ├── testdata/
 │   └── pellematic.json  # Example JSON data from boiler (full format)
+├── .github/
+│   └── workflows/
+│       └── container.yml  # CI: builds and pushes the multi-arch image to GHCR
 ├── go.mod               # Go module definition
 ├── go.sum               # Dependency checksums
-├── .gitignore           # Git ignore patterns (excludes binaries)
-└── .pi/                 # Pi agent state
+└── .gitignore           # Git ignore patterns (excludes binaries)
 ```
+
+The `.pi/` directory (Pi agent state) may exist locally but is gitignored and is not part of the repository.
 
 ## Key Components
 
@@ -267,6 +273,10 @@ If the boiler's JSON format changes:
 The following binaries are ignored by Git:
 - `exporter`
 - `oekofen-pellematic-exporter`
+
+### Container CI
+
+GitHub Actions (`.github/workflows/container.yml`) builds the multi-arch image and pushes it to `ghcr.io/vrischmann/oekofen-pellematic-exporter`. It triggers on pushes to `master`, on `v*` tags, and on manual dispatch. No extra credentials are required (it uses the built-in `GITHUB_TOKEN`).
 
 When building for distribution:
 ```bash

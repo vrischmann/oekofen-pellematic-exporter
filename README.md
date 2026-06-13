@@ -6,7 +6,7 @@ A Prometheus exporter for Oekofen Pellematic pellet heating systems. It fetches 
 
 - Fetches metrics from Oekofen Pellematic boilers via their JSON endpoint
 - Data-driven metric scaling using the `factor` field from the boiler's telemetry
-- Human-readable metric descriptions from the boiler's own `text` metadata
+- Human-readable metric descriptions taken from the boiler's own `text` metadata
 - Graceful shutdown on SIGINT
 - Development and production logging modes (structured JSON in production)
 - Online/offline tracking: when the boiler is unreachable, stale metrics are removed and errors are counted
@@ -22,11 +22,18 @@ The exporter processes all top-level sections from the Pellematic JSON endpoint 
 - **wireless1**: Wireless room sensor (temperature, humidity, battery, RSSI)
 - **ww1**: Domestic hot water (temperatures, pump status, state)
 - **pe1**: Pellet boiler (modulation, runtime, burner status, flue gas, storage fill)
-- **error**: Error information
 
 Additional sections (hk2, ww2, pe2, etc.) are automatically processed if present in the JSON response.
 
 ## Installation
+
+### Prebuilt Container Image
+
+A multi-arch (amd64/arm64) image is built automatically by CI and published to the GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/vrischmann/oekofen-pellematic-exporter:latest
+```
 
 ### From Source
 
@@ -36,9 +43,9 @@ cd oekofen-pellematic-exporter
 go build -o oekofen-pellematic-exporter .
 ```
 
-### Docker
+### Building the Image Locally
 
-A multi-arch (amd64/arm64) Docker image can be built and pushed using the justfile recipes:
+The justfile recipes build and push a multi-arch image with Docker buildx or Podman:
 
 ```bash
 just build           # Docker buildx
@@ -73,7 +80,7 @@ docker run -d \
   -p 48400:48400 \
   -e BOILER_URL=http://192.168.1.100/pellematic_full.json \
   -e LOG_MODE=production \
-  oekofen-pellematic-exporter
+  ghcr.io/vrischmann/oekofen-pellematic-exporter:latest
 ```
 
 ### Docker Compose
@@ -81,7 +88,7 @@ docker run -d \
 ```yaml
 services:
   pellematic-exporter:
-    image: oekofen-pellematic-exporter
+    image: ghcr.io/vrischmann/oekofen-pellematic-exporter:latest
     container_name: pellematic-exporter
     ports:
       - "48400:48400"
@@ -131,6 +138,8 @@ String-valued fields (names, URLs, update timestamps) are automatically skipped.
 
 ## Available Metrics
 
+The exporter is fully data-driven, so the exact set of metrics depends on what the boiler returns. The tables below are a complete reference of the metrics produced from the sample payload in `testdata/pellematic.json`. Metric help text comes directly from the boiler's `text` metadata.
+
 ### Scrape Metrics (always present)
 
 | Metric | Type | Description |
@@ -138,35 +147,35 @@ String-valued fields (names, URLs, update timestamps) are automatically skipped.
 | `pellematic_scrape_errors_total` | counter | Total number of scrape errors from the Pellematic boiler |
 | `pellematic_scrape_last_success_timestamp_seconds` | gauge | Unix timestamp of last successful scrape |
 
-### Example Metrics by Section
-
-Below are the most commonly used metrics. Metric help text comes directly from the boiler's `text` metadata.
-
-#### System (`pellematic_system_*`)
+### System (`pellematic_system_*`)
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_system_ambient` | Ambient temperature (T extérieure) |
-| `pellematic_system_errors` | Active errors (Défaut) |
+| `pellematic_system_ambient` | Outdoor temperature |
+| `pellematic_system_errors` | Active faults/defects |
 | `pellematic_system_usb_stick` | USB stick connected |
-| `pellematic_system_existing_boiler` | Measured temperature (T mes) |
-| `pellematic_system_mode` | Mode (0=Off, 1=Auto, 2=DHW) |
+| `pellematic_system_existing_boiler` | Measured temperature |
+| `pellematic_system_mode` | Operating mode (0=Off, 1=Auto, 2=DHW) |
 
-#### Weather (`pellematic_weather_*`)
+### Weather (`pellematic_weather_*`)
 
 | Metric | Description |
 |--------|-------------|
 | `pellematic_weather_temp` | Current outdoor temperature |
-| `pellematic_weather_clouds` | Current cloud coverage |
+| `pellematic_weather_clouds` | Current cloud coverage (%) |
 | `pellematic_weather_forecast_temp` | Forecast average temperature |
-| `pellematic_weather_forecast_clouds` | Forecast average cloudiness |
-| `pellematic_weather_cloud_limit` | Weather threshold |
-| `pellematic_weather_hysteresys` | Ambient temperature hysteresis for eco mode cutoff |
+| `pellematic_weather_forecast_clouds` | Forecast average cloudiness (%) |
+| `pellematic_weather_forecast_today` | Weather forecast enabled (start forecast) |
+| `pellematic_weather_starttime` | Schedule start time |
+| `pellematic_weather_endtime` | Schedule end time |
+| `pellematic_weather_cloud_limit` | Weather threshold (%) |
+| `pellematic_weather_hysteresys` | Ambient temperature hysteresis for eco-mode cutoff |
 | `pellematic_weather_offtemp` | Outdoor cutoff temperature |
 | `pellematic_weather_lead` | Anticipation duration (min) |
+| `pellematic_weather_refresh` | Refresh flag |
 | `pellematic_weather_oekomode` | Eco mode (0=Off, 1=On) |
 
-#### Heating Circuit 1 (`pellematic_hk1_*`)
+### Heating Circuit 1 (`pellematic_hk1_*`)
 
 | Metric | Description |
 |--------|-------------|
@@ -176,65 +185,89 @@ Below are the most commonly used metrics. Metric help text comes directly from t
 | `pellematic_hk1_flowtemp_set` | Set flow temperature |
 | `pellematic_hk1_comfort` | Comfort temperature offset |
 | `pellematic_hk1_state` | State code |
-| `pellematic_hk1_pump` | Pump status (0=Off, 1=On) |
-| `pellematic_hk1_statetext{component="..."}` | State text components (value=1.0) |
-| `pellematic_hk1_temp_heat` | Comfort ambient temperature |
-| `pellematic_hk1_temp_setback` | Setback ambient temperature |
+| `pellematic_hk1_pump` | Circulation pump (0=Off, 1=On) |
+| `pellematic_hk1_remote_override` | Remote control override |
+| `pellematic_hk1_mode_off` | Mode: Off selected |
+| `pellematic_hk1_mode_auto` | Mode: Auto selected |
+| `pellematic_hk1_mode_dhw` | Mode: DHW selected |
+| `pellematic_hk1_time_prg` | Time program selection |
+| `pellematic_hk1_temp_setback` | Setback (reduced) room temperature |
+| `pellematic_hk1_temp_heat` | Comfort room temperature |
+| `pellematic_hk1_temp_vacation` | Vacation room temperature |
 | `pellematic_hk1_oekomode` | Eco mode |
+| `pellematic_hk1_statetext{component="..."}` | State text components (value=1.0) |
 
-#### Wireless Sensor (`pellematic_wireless1_*`)
+### Wireless Sensor (`pellematic_wireless1_*`)
 
 | Metric | Description |
 |--------|-------------|
+| `pellematic_wireless1_wireless_id` | Sensor ID |
 | `pellematic_wireless1_wireless_temp` | Temperature |
-| `pellematic_wireless1_wireless_hum` | Humidity |
+| `pellematic_wireless1_wireless_hum` | Humidity (%) |
 | `pellematic_wireless1_wireless_rssi` | Signal strength (RSSI) |
 | `pellematic_wireless1_wireless_batt` | Battery level (%) |
 
-#### Domestic Hot Water (`pellematic_ww1_*`)
+### Domestic Hot Water (`pellematic_ww1_*`)
 
 | Metric | Description |
 |--------|-------------|
-| `pellematic_ww1_temp_set` | DHW set temperature |
+| `pellematic_ww1_temp_set` | DHW setpoint (start) |
 | `pellematic_ww1_ontemp_act` | On temperature (actual) |
 | `pellematic_ww1_offtemp_act` | Off temperature (actual) |
-| `pellematic_ww1_pump` | Pump status (0=Off, 1=On) |
+| `pellematic_ww1_pump` | DHW pump (0=Off, 1=On) |
 | `pellematic_ww1_state` | State code |
-| `pellematic_ww1_statetext{component="..."}` | State text components (value=1.0) |
-| `pellematic_ww1_temp_max_set` | Max set temperature |
+| `pellematic_ww1_time_prg` | Time program selection |
+| `pellematic_ww1_sensor_on` | On sensor |
+| `pellematic_ww1_sensor_off` | Off sensor |
+| `pellematic_ww1_mode_off` | Mode: Off selected |
+| `pellematic_ww1_mode_auto` | Mode: Auto selected |
+| `pellematic_ww1_mode_dhw` | Mode: DHW selected |
+| `pellematic_ww1_heat_once` | One-time DHW charge |
+| `pellematic_ww1_temp_min_set` | Minimum DHW temperature |
+| `pellematic_ww1_temp_max_set` | Maximum DHW setpoint |
 | `pellematic_ww1_smartstart` | Anticipated DHW charge (min) |
 | `pellematic_ww1_use_boiler_heat` | Remaining energy used (0=Off, 1=On) |
+| `pellematic_ww1_oekomode` | Eco mode |
+| `pellematic_ww1_statetext{component="..."}` | State text components (value=1.0) |
 
-#### Pellet Boiler (`pellematic_pe1_*`)
+### Pellet Boiler (`pellematic_pe1_*`)
 
 | Metric | Description |
 |--------|-------------|
 | `pellematic_pe1_temp_act` | Actual boiler temperature |
-| `pellematic_pe1_temp_set` | Set temperature |
-| `pellematic_pe1_frt_temp_act` | Flame temperature |
+| `pellematic_pe1_temp_set` | Set/return temperature |
+| `pellematic_pe1_frt_temp_act` | Flame temperature (actual) |
+| `pellematic_pe1_frt_temp_set` | Flame set temperature |
+| `pellematic_pe1_frt_temp_end` | Maximum flame temperature |
+| `pellematic_pe1_br` | Burner contact |
+| `pellematic_pe1_ak` | Boiler body (AK) |
+| `pellematic_pe1_not` | Emergency stop |
+| `pellematic_pe1_stb` | Safety thermostat |
 | `pellematic_pe1_modulation` | Modulation level (%) |
-| `pellematic_pe1_runtime` | Total burner runtime (hours) |
-| `pellematic_pe1_avg_runtime` | Average burner runtime (minutes) |
-| `pellematic_pe1_runtimeburner` | Burner runtime |
-| `pellematic_pe1_resttimeburner` | Burner rest time |
-| `pellematic_pe1_starts` | Total burner starts |
+| `pellematic_pe1_runtimeburner` | Burner visual runtime |
+| `pellematic_pe1_resttimeburner` | Burner rest/pause time |
+| `pellematic_pe1_currentairflow` | Combustion air velocity |
 | `pellematic_pe1_lowpressure` | Draft depression |
 | `pellematic_pe1_lowpressure_set` | Set draft depression |
 | `pellematic_pe1_fluegas` | Flue gas velocity |
 | `pellematic_pe1_uw_speed` | UW speed (%) |
+| `pellematic_pe1_state` | Boiler state code |
+| `pellematic_pe1_type` | Boiler type |
+| `pellematic_pe1_starts` | Total burner starts |
+| `pellematic_pe1_runtime` | Total burner runtime (h) |
+| `pellematic_pe1_avg_runtime` | Average burner runtime (min) |
+| `pellematic_pe1_uw_release` | Release (limit) temperature |
 | `pellematic_pe1_uw` | UW speed |
-| `pellematic_pe1_uw_release` | Limit temperature |
 | `pellematic_pe1_storage_fill` | Pellets in silo (kg) |
 | `pellematic_pe1_storage_min` | Pellet alert threshold (kg) |
-| `pellematic_pe1_storage_max` | Max storage capacity (kg) |
+| `pellematic_pe1_storage_max` | Maximum storage capacity (kg) |
 | `pellematic_pe1_storage_popper` | Pellets in hopper (kg) |
+| `pellematic_pe1_mode` | Operating mode |
 | `pellematic_pe1_statetext{component="..."}` | State text components (value=1.0) |
 
-Additional pe1 fields (`L_br`, `L_ak`, `L_not`, `L_stb`, `L_type`, `L_currentairflow`, `mode`) are also exposed.
+The following `pe1` fields exist in the sample payload but are skipped because they carry sentinel values (`32765`, `32767`, `-32768`): `L_ext_temp`, `storage_fill_today`, `storage_fill_yesterday`.
 
 ## Metric Scaling
-
-### JSON Format
 
 When using the JSON endpoint, scaling is **data-driven**: each field carries a `factor` that the exporter applies automatically. For example:
 
@@ -254,7 +287,7 @@ This eliminates the need for heuristic-based scaling and correctly handles all f
 
 ### Prerequisites
 
-- Go 1.25 or later
+- Go 1.25 or later (the module and Dockerfile pin `go 1.25.7`)
 
 ### Building
 
@@ -272,9 +305,9 @@ go test -v -timeout=60s ./...
 
 ```bash
 go build ./...          # Compile check
-gofmt -d -e             # Check formatting
+gofmt -d -e .           # Check formatting
 gofmt -s -w .           # Fix formatting
-staticcheck ./...       # Static analysis (use: just lint)
+just lint               # gofmt + go vet + staticcheck
 ```
 
 ### Manual Testing
@@ -302,6 +335,7 @@ Consider alerting on:
 - `pellematic_scrape_errors_total` increasing (boiler unreachable)
 - `pellematic_system_errors > 0` (active boiler errors)
 - `pellematic_wireless1_wireless_batt < 20` (low battery on wireless sensor)
+- `pellematic_pe1_storage_fill` approaching `pellematic_pe1_storage_min` (pellet silo nearly empty)
 - Temperature deviations beyond expected ranges
 
 ## Troubleshooting
