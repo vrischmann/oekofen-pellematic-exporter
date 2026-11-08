@@ -156,8 +156,8 @@ func (c *Collector) processValue(field string, value any) float64 {
 func (c *Collector) processStateText(prefix string, statetext string) []prometheus.Metric {
 	var metrics []prometheus.Metric
 
-	components := strings.Split(statetext, "|")
-	for _, comp := range components {
+	components := strings.SplitSeq(statetext, "|")
+	for comp := range components {
 		comp = strings.TrimSpace(comp)
 		if comp == "" {
 			continue
