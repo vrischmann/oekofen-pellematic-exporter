@@ -4,7 +4,7 @@
 
 A Go-based Prometheus exporter for Oekofen Pellematic pellet heating systems. The exporter fetches JSON data from the boiler's web interface and converts it to Prometheus metrics for monitoring and alerting.
 
-The module and Dockerfile pin Go 1.25.7 (`go.mod` requires `go 1.25.7`, `Dockerfile` uses `golang:1.25.7`).
+The module and Dockerfile pin Go 1.27.3 (`go.mod` requires `go 1.27.3`, `Dockerfile` uses `golang:1.27.3`).
 
 ## Code Validation Commands
 
@@ -28,6 +28,8 @@ go test -v -timeout=60s ./...
 ```
 
 **Note**: Always use these exact arguments when running these tools, as they match the project's conventions.
+
+To pick up toolchain modernizers after a Go upgrade, run `go fix -diff ./...` first and review the proposal before applying it.
 
 ## Running the Project
 

@@ -287,7 +287,7 @@ This eliminates the need for heuristic-based scaling and correctly handles all f
 
 ### Prerequisites
 
-- Go 1.25 or later (the module and Dockerfile pin `go 1.25.7`)
+- Go 1.27 or later (the module and Dockerfile pin `go 1.27.3`)
 
 ### Building
 
